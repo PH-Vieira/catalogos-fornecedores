@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { setRememberLogin } from '@/utils/authStorage'
+import { applyRememberPreference } from '@/utils/authStorage'
 import { validateEmail } from '@/utils/security/validate'
 import {
   assertLoginAllowed,
@@ -31,7 +31,7 @@ export async function secureSignIn(
     }
   }
 
-  setRememberLogin(rememberMe)
+  applyRememberPreference(rememberMe)
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: email.trim().toLowerCase(),
@@ -44,5 +44,6 @@ export async function secureSignIn(
   }
 
   clearLoginAttempts(email)
+  applyRememberPreference(rememberMe)
   return { session: data.session, error: null }
 }

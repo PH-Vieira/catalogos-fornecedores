@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { applyRememberPreference } from '@/utils/authStorage'
 
 export function supportsPasskeys(): boolean {
   return (
@@ -59,7 +60,9 @@ function mapPasskeyError(error: { message: string; name?: string }): string {
   return 'Não foi possível entrar. Tente de novo ou use e-mail e senha.'
 }
 
-export async function signInWithPasskeyAuth(): Promise<{
+export async function signInWithPasskeyAuth(
+  rememberMe = true
+): Promise<{
   session: Session | null
   error: string | null
 }> {
@@ -70,12 +73,15 @@ export async function signInWithPasskeyAuth(): Promise<{
     }
   }
 
+  applyRememberPreference(rememberMe)
+
   const { data, error } = await supabase.auth.signInWithPasskey()
 
   if (error) {
     return { session: null, error: mapPasskeyError(error) }
   }
 
+  applyRememberPreference(rememberMe)
   return { session: data.session, error: null }
 }
 

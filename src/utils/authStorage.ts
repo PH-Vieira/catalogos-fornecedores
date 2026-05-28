@@ -1,6 +1,6 @@
 const REMEMBER_KEY = 'catalog_auth_remember'
 
-/** Preferência persistida: manter login entre fechamentos do navegador. */
+/** Preferência: manter login após fechar o navegador. */
 export function getRememberLogin(): boolean {
   return localStorage.getItem(REMEMBER_KEY) !== 'false'
 }
@@ -13,26 +13,76 @@ function activeStorage(): Storage {
   return getRememberLogin() ? localStorage : sessionStorage
 }
 
-/** Storage do Supabase Auth: localStorage se “lembrar”, senão sessionStorage. */
+function inactiveStorage(): Storage {
+  return getRememberLogin() ? sessionStorage : localStorage
+}
+
+/** Chaves de sessão do Supabase Auth (sb-…-auth-token, -user, -code-verifier, etc.). */
+export function collectSupabaseAuthKeys(storage: Storage): string[] {
+  const keys: string[] = []
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (key?.startsWith('sb-')) keys.push(key)
+  }
+  return keys
+}
+
+function migrateSupabaseAuthKeys(from: Storage, to: Storage): void {
+  for (const key of collectSupabaseAuthKeys(from)) {
+    const value = from.getItem(key)
+    if (value !== null) {
+      to.setItem(key, value)
+    }
+    from.removeItem(key)
+  }
+}
+
+function clearSupabaseAuthKeys(storage: Storage): void {
+  for (const key of collectSupabaseAuthKeys(storage)) {
+    storage.removeItem(key)
+  }
+}
+
+/**
+ * Aplica “lembrar login” e move a sessão para o storage correto.
+ * Chamar antes/depois do login e ao mudar o checkbox.
+ */
+export function applyRememberPreference(remember: boolean): void {
+  setRememberLogin(remember)
+  const target = remember ? localStorage : sessionStorage
+  const other = remember ? sessionStorage : localStorage
+
+  migrateSupabaseAuthKeys(other, target)
+
+  if (!remember) {
+    clearSupabaseAuthKeys(localStorage)
+  }
+}
+
+function reconcileOnStartup(): void {
+  if (typeof window === 'undefined') return
+
+  if (getRememberLogin()) {
+    migrateSupabaseAuthKeys(sessionStorage, localStorage)
+  } else {
+    clearSupabaseAuthKeys(localStorage)
+  }
+}
+
+/** Storage customizado do Supabase Auth. */
 export const authStorage = {
   getItem(key: string): string | null {
-    return (
-      activeStorage().getItem(key) ??
-      localStorage.getItem(key) ??
-      sessionStorage.getItem(key)
-    )
+    return activeStorage().getItem(key)
   },
   setItem(key: string, value: string): void {
-    if (getRememberLogin()) {
-      sessionStorage.removeItem(key)
-      localStorage.setItem(key, value)
-    } else {
-      localStorage.removeItem(key)
-      sessionStorage.setItem(key, value)
-    }
+    const target = activeStorage()
+    inactiveStorage().removeItem(key)
+    target.setItem(key, value)
   },
   removeItem(key: string): void {
     localStorage.removeItem(key)
     sessionStorage.removeItem(key)
   },
 }
+
+reconcileOnStartup()

@@ -114,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import type { Session } from '@supabase/supabase-js'
 import { Fingerprint } from '@lucide/vue'
 import { secureSignIn } from '@/composables/useSecureSignIn'
@@ -122,7 +122,7 @@ import {
   signInWithPasskeyAuth,
   supportsPasskeys,
 } from '@/composables/usePasskeyAuth'
-import { getRememberLogin, setRememberLogin } from '@/utils/authStorage'
+import { applyRememberPreference, getRememberLogin } from '@/utils/authStorage'
 import { getLoginLockMessage } from '@/utils/security/loginRateLimit'
 import type { Supplier } from '@/types'
 
@@ -148,6 +148,10 @@ const passkeyAvailable = supportsPasskeys()
 
 onMounted(() => {
   rememberMe.value = getRememberLogin()
+})
+
+watch(rememberMe, (checked) => {
+  applyRememberPreference(checked)
 })
 
 function updateLockMessage() {
@@ -176,16 +180,14 @@ async function submitPassword() {
     return
   }
 
-  setRememberLogin(rememberMe.value)
+  applyRememberPreference(rememberMe.value)
   emit('success', session)
 }
 
 async function submitPasskey() {
   loading.value = true
   message.value = ''
-  setRememberLogin(rememberMe.value)
-
-  const { session, error } = await signInWithPasskeyAuth()
+  const { session, error } = await signInWithPasskeyAuth(rememberMe.value)
   loading.value = false
 
   if (error || !session) {
