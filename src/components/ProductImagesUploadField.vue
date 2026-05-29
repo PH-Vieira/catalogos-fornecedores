@@ -176,7 +176,15 @@ function clear() {
   if (fileInput.value) fileInput.value.value = ''
 }
 
+/** Limpa só fotos novas (pendentes); mantém as já salvas no produto. */
+function clearPendingOnly() {
+  revokeAllPreviews()
+  files.value = []
+  error.value = ''
+  if (fileInput.value) fileInput.value.value = ''
+}
+
 onUnmounted(revokeAllPreviews)
 
-defineExpose({ clear })
+defineExpose({ clear, clearPendingOnly })
 </script>
