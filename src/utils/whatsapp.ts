@@ -65,6 +65,23 @@ export function buildWhatsAppUrl(whatsapp: string, message: string): string | nu
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
 }
 
+/** Mensagem inicial ao tocar em “WhatsApp” no catálogo (sem carrinho). */
+export function buildWhatsAppGreetingMessage(storeName?: string | null): string {
+  const name = storeName?.trim()
+  if (name) {
+    return `Olá! Vi o catálogo da ${name} e gostaria de mais informações.`
+  }
+  return 'Olá! Vi o catálogo e gostaria de mais informações.'
+}
+
+export function buildWhatsAppGreetingUrl(
+  whatsapp: string | null | undefined,
+  storeName?: string | null
+): string | null {
+  if (!whatsapp?.trim()) return null
+  return buildWhatsAppUrl(whatsapp, buildWhatsAppGreetingMessage(storeName))
+}
+
 /** Monta o link de checkout só quando carrinho, preços e WhatsApp são válidos. */
 export function buildWhatsAppCheckoutUrl(
   whatsapp: string | null | undefined,

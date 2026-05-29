@@ -42,8 +42,8 @@
           <span>Ligar</span>
         </a>
         <a
-          v-if="whatsapp"
-          :href="`https://wa.me/${whatsapp.replace(/\D/g, '')}`"
+          v-if="whatsappUrl"
+          :href="whatsappUrl"
           :class="contactBtnClass"
           target="_blank"
           rel="noopener"
@@ -70,6 +70,7 @@
 import { computed } from 'vue'
 import { ShoppingCart, PhoneCall } from '@lucide/vue'
 import { PhWhatsappLogo, PhInstagramLogo } from '@phosphor-icons/vue'
+import { buildWhatsAppGreetingUrl } from '@/utils/whatsapp'
 
 const props = defineProps<{
   name: string
@@ -81,6 +82,10 @@ const props = defineProps<{
 }>()
 
 defineEmits<{ 'open-cart': [] }>()
+
+const whatsappUrl = computed(() =>
+  buildWhatsAppGreetingUrl(props.whatsapp, props.name)
+)
 
 const contactCount = computed(() =>
   [props.phone, props.whatsapp, props.instagram].filter(Boolean).length
