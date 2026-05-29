@@ -8,9 +8,11 @@ import AdminLoginForm from '@/components/AdminLoginForm.vue'
 import AdminPasskeySetup from '@/components/AdminPasskeySetup.vue'
 import ForcePasswordChange from '@/components/ForcePasswordChange.vue'
 import ProductImagesUploadField from '@/components/ProductImagesUploadField.vue'
+import AdminProductImport from '@/components/AdminProductImport.vue'
 import { validateProductInput, isValidUuid } from '@/utils/security/validate'
 import { validateImageFile, safeImageExtension } from '@/utils/security/upload'
 import { formatPrice } from '@/utils/format'
+import { withTimeout } from '@/utils/async'
 import { normalizeProduct, productImageUrls } from '@/utils/productImages'
 import { supabase } from '@/lib/supabase'
 import type { Product } from '@/types'
@@ -116,25 +118,35 @@ async function uploadImageFile(supplierId: string, file: File): Promise<string> 
   return data.publicUrl
 }
 
+const UPLOAD_TIMEOUT_MS = 120_000
+const DB_TIMEOUT_MS = 30_000
+
 async function uploadNewImages(supplierId: string): Promise<string[]> {
-  const urls: string[] = []
-  for (const file of imageFiles.value) {
-    urls.push(await uploadImageFile(supplierId, file))
-  }
-  return urls
+  if (!imageFiles.value.length) return []
+  return Promise.all(
+    imageFiles.value.map((file) =>
+      withTimeout(
+        uploadImageFile(supplierId, file),
+        UPLOAD_TIMEOUT_MS,
+        'Envio da foto demorou demais. Verifique sua conexão e tente novamente.'
+      )
+    )
+  )
 }
 
 async function saveProduct() {
   if (!supplier.value || !isOwner.value) return
+  if (loading.value) return
+
+  const validated = validateProductInput(form.value)
+  if (!validated.ok) {
+    message.value = validated.error
+    return
+  }
+
   loading.value = true
   message.value = ''
   try {
-    const validated = validateProductInput(form.value)
-    if (!validated.ok) {
-      message.value = validated.error
-      return
-    }
-
     const uploadedUrls = await uploadNewImages(supplier.value.id)
     const image_urls = [...editingImageUrls.value, ...uploadedUrls]
 
@@ -144,26 +156,30 @@ async function saveProduct() {
       image_urls,
     }
 
-    let productId = editingId.value
+    const productId = editingId.value
 
     if (productId) {
-      const { error } = await supabase
-        .from('products')
-        .update(payload)
-        .eq('id', productId)
+      const { error } = await withTimeout(
+        supabase.from('products').update(payload).eq('id', productId),
+        DB_TIMEOUT_MS,
+        'Salvar o produto demorou demais. Verifique sua conexão e tente novamente.'
+      )
       if (error) throw formatDbError(error, 'salvar produto')
     } else {
-      const { data, error } = await supabase
-        .from('products')
-        .insert(payload)
-        .select('id')
-        .single()
+      const { error } = await withTimeout(
+        supabase.from('products').insert(payload).select('id').single(),
+        DB_TIMEOUT_MS,
+        'Cadastrar o produto demorou demais. Verifique sua conexão e tente novamente.'
+      )
       if (error) throw formatDbError(error, 'cadastrar produto')
-      productId = data.id
     }
 
+    await withTimeout(
+      loadAdminProducts(),
+      DB_TIMEOUT_MS,
+      'Atualizar a lista demorou demais. O produto pode ter sido salvo — recarregue a página.'
+    )
     resetForm()
-    await loadAdminProducts()
   } catch (e: unknown) {
     message.value = e instanceof Error ? e.message : 'Erro ao salvar'
   } finally {
@@ -177,12 +193,21 @@ async function deleteProduct(id: string) {
     return
   }
   if (!confirm('Excluir este produto?')) return
+  if (loading.value) return
   loading.value = true
   message.value = ''
-  const { error } = await supabase.from('products').delete().eq('id', id)
-  loading.value = false
-  if (error) message.value = error.message
-  else await loadAdminProducts()
+  try {
+    const { error } = await withTimeout(
+      supabase.from('products').delete().eq('id', id),
+      DB_TIMEOUT_MS
+    )
+    if (error) message.value = error.message
+    else await withTimeout(loadAdminProducts(), DB_TIMEOUT_MS)
+  } catch (e: unknown) {
+    message.value = e instanceof Error ? e.message : 'Erro ao excluir'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function onLoginSuccess(newSession: Session) {
@@ -206,6 +231,11 @@ async function handleSignOut() {
 
 async function handlePasswordChanged() {
   onPasswordChanged()
+  await loadAdminProducts()
+}
+
+async function onProductsImported() {
+  message.value = ''
   await loadAdminProducts()
 }
 
@@ -289,6 +319,14 @@ const productCount = computed(() => adminProducts.value.length)
         <!-- CRUD -->
         <template v-else>
           <AdminPasskeySetup />
+
+          <AdminProductImport
+            v-if="supplier"
+            :supplier-id="supplier.id"
+            :disabled="loading"
+            @imported="onProductsImported"
+            @error="(msg) => (message = msg)"
+          />
 
           <form
             class="bg-white border border-zinc-200 rounded-xl p-5 space-y-4 shadow-sm"
