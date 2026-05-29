@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import type { Session } from '@supabase/supabase-js'
 import { RouterLink } from 'vue-router'
 import { useSupplier } from '@/composables/useSupplier'
@@ -15,6 +15,7 @@ import { formatPrice } from '@/utils/format'
 import { withTimeout } from '@/utils/async'
 import { normalizeProduct, productImageUrls } from '@/utils/productImages'
 import { supabase } from '@/lib/supabase'
+import { supportsPasskeys } from '@/composables/usePasskeyAuth'
 import type { Product } from '@/types'
 
 const { supplier, loading: supplierLoading, error: supplierError, load } =
@@ -26,6 +27,7 @@ const {
   authReady,
   isOwner,
   setSession,
+  refreshAuth,
   syncPasswordRequirement,
   onPasswordChanged,
   signOut,
@@ -34,6 +36,9 @@ const {
 const adminProducts = ref<Product[]>([])
 const loading = ref(false)
 const message = ref('')
+const showImportPanel = ref(false)
+const showPasskeyPanel = ref(false)
+const passkeyAvailable = supportsPasskeys()
 
 const editingId = ref<string | null>(null)
 const editingImageUrls = ref<string[]>([])
@@ -51,6 +56,10 @@ const inputClass =
   'input-touch w-full px-4 border border-zinc-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900'
 
 load()
+
+onMounted(() => {
+  void refreshAuth()
+})
 
 watch(
   () =>
@@ -84,9 +93,9 @@ function resetForm() {
 
 function editProduct(p: Product) {
   editingId.value = p.id
-  editingImageUrls.value = [...productImageUrls(p)]
   imageFiles.value = []
-  imagesUploadRef.value?.clear()
+  imagesUploadRef.value?.clearPendingOnly()
+  editingImageUrls.value = [...productImageUrls(p)]
   form.value = {
     code: p.code,
     description: p.description,
@@ -120,13 +129,44 @@ async function uploadImageFile(supplierId: string, file: File): Promise<string> 
 
 const UPLOAD_TIMEOUT_MS = 120_000
 const DB_TIMEOUT_MS = 30_000
+const SESSION_TIMEOUT_MS = 10_000
+const SAVE_SAFETY_MS = UPLOAD_TIMEOUT_MS + DB_TIMEOUT_MS * 3 + 15_000
 
-async function uploadNewImages(supplierId: string): Promise<string[]> {
-  if (!imageFiles.value.length) return []
+let saveRunId = 0
+let saveSafetyTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearSaveSafetyTimer() {
+  if (saveSafetyTimer !== null) {
+    clearTimeout(saveSafetyTimer)
+    saveSafetyTimer = null
+  }
+}
+
+function finishSave(runId: number) {
+  if (runId === saveRunId) {
+    clearSaveSafetyTimer()
+    loading.value = false
+  }
+}
+
+async function requireSession() {
+  const { data, error } = await withTimeout(
+    () => supabase.auth.getSession(),
+    SESSION_TIMEOUT_MS,
+    'Não foi possível verificar o login. Saia e entre novamente.'
+  )
+  if (error) throw new Error(error.message)
+  if (!data.session) {
+    throw new Error('Sessão expirada. Saia e entre novamente.')
+  }
+}
+
+async function uploadNewImages(supplierId: string, files: File[]): Promise<string[]> {
+  if (!files.length) return []
   return Promise.all(
-    imageFiles.value.map((file) =>
+    files.map((file) =>
       withTimeout(
-        uploadImageFile(supplierId, file),
+        () => uploadImageFile(supplierId, file),
         UPLOAD_TIMEOUT_MS,
         'Envio da foto demorou demais. Verifique sua conexão e tente novamente.'
       )
@@ -134,9 +174,16 @@ async function uploadNewImages(supplierId: string): Promise<string[]> {
   )
 }
 
+function onProductFormSubmit() {
+  if (loading.value) {
+    message.value = 'Aguarde o salvamento em andamento ou recarregue a página.'
+    return
+  }
+  void saveProduct()
+}
+
 async function saveProduct() {
   if (!supplier.value || !isOwner.value) return
-  if (loading.value) return
 
   const validated = validateProductInput(form.value)
   if (!validated.ok) {
@@ -144,30 +191,45 @@ async function saveProduct() {
     return
   }
 
+  const runId = ++saveRunId
   loading.value = true
   message.value = ''
+  clearSaveSafetyTimer()
+  saveSafetyTimer = setTimeout(() => {
+    if (runId === saveRunId && loading.value) {
+      loading.value = false
+      message.value =
+        'O salvamento travou. Verifique sua conexão e tente de novo.'
+    }
+  }, SAVE_SAFETY_MS)
+
+  const filesToUpload = [...imageFiles.value]
+  const supplierId = supplier.value.id
+  const existingUrls = [...editingImageUrls.value]
+  const productId = editingId.value
+
   try {
-    const uploadedUrls = await uploadNewImages(supplier.value.id)
-    const image_urls = [...editingImageUrls.value, ...uploadedUrls]
+    await requireSession()
+
+    const uploadedUrls = await uploadNewImages(supplierId, filesToUpload)
+    const image_urls = [...existingUrls, ...uploadedUrls]
 
     const payload: Record<string, unknown> = {
-      supplier_id: supplier.value.id,
+      supplier_id: supplierId,
       ...validated.data,
       image_urls,
     }
 
-    const productId = editingId.value
-
     if (productId) {
       const { error } = await withTimeout(
-        supabase.from('products').update(payload).eq('id', productId),
+        () => supabase.from('products').update(payload).eq('id', productId),
         DB_TIMEOUT_MS,
         'Salvar o produto demorou demais. Verifique sua conexão e tente novamente.'
       )
       if (error) throw formatDbError(error, 'salvar produto')
     } else {
       const { error } = await withTimeout(
-        supabase.from('products').insert(payload).select('id').single(),
+        () => supabase.from('products').insert(payload).select('id').single(),
         DB_TIMEOUT_MS,
         'Cadastrar o produto demorou demais. Verifique sua conexão e tente novamente.'
       )
@@ -175,16 +237,55 @@ async function saveProduct() {
     }
 
     await withTimeout(
-      loadAdminProducts(),
+      () => loadAdminProducts(),
       DB_TIMEOUT_MS,
       'Atualizar a lista demorou demais. O produto pode ter sido salvo — recarregue a página.'
     )
     resetForm()
   } catch (e: unknown) {
-    message.value = e instanceof Error ? e.message : 'Erro ao salvar'
+    if (runId === saveRunId) {
+      message.value = e instanceof Error ? e.message : 'Erro ao salvar'
+    }
   } finally {
-    loading.value = false
+    finishSave(runId)
   }
+}
+
+onBeforeUnmount(() => {
+  saveRunId++
+  clearSaveSafetyTimer()
+  loading.value = false
+})
+
+const stockStepBtnClass =
+  'min-h-9 px-2 rounded-lg border-2 border-zinc-300 bg-zinc-50 text-xs font-bold text-zinc-800 active:bg-zinc-100 disabled:opacity-40'
+
+async function persistStock(p: Product, next: number) {
+  if (loading.value) return
+  const clamped = Math.min(999_999, Math.max(0, next))
+  if (clamped === p.stock) return
+
+  const prev = p.stock
+  p.stock = clamped
+  if (editingId.value === p.id) form.value.stock = clamped
+
+  const { error } = await withTimeout(
+    () => supabase.from('products').update({ stock: clamped }).eq('id', p.id),
+    DB_TIMEOUT_MS
+  )
+  if (error) {
+    p.stock = prev
+    if (editingId.value === p.id) form.value.stock = prev
+    message.value = error.message
+  }
+}
+
+function adjustStock(p: Product, delta: number) {
+  void persistStock(p, p.stock + delta)
+}
+
+function zeroStock(p: Product) {
+  void persistStock(p, 0)
 }
 
 async function deleteProduct(id: string) {
@@ -193,32 +294,40 @@ async function deleteProduct(id: string) {
     return
   }
   if (!confirm('Excluir este produto?')) return
-  if (loading.value) return
+  if (loading.value) {
+    message.value = 'Aguarde o salvamento em andamento.'
+    return
+  }
+
+  const runId = ++saveRunId
   loading.value = true
   message.value = ''
   try {
+    await requireSession()
     const { error } = await withTimeout(
-      supabase.from('products').delete().eq('id', id),
+      () => supabase.from('products').delete().eq('id', id),
       DB_TIMEOUT_MS
     )
     if (error) message.value = error.message
-    else await withTimeout(loadAdminProducts(), DB_TIMEOUT_MS)
+    else await withTimeout(() => loadAdminProducts(), DB_TIMEOUT_MS)
   } catch (e: unknown) {
-    message.value = e instanceof Error ? e.message : 'Erro ao excluir'
+    if (runId === saveRunId) {
+      message.value = e instanceof Error ? e.message : 'Erro ao excluir'
+    }
   } finally {
-    loading.value = false
+    finishSave(runId)
   }
 }
 
 async function onLoginSuccess(newSession: Session) {
   message.value = ''
   setSession(newSession)
+  await refreshAuth()
   if (!isOwner.value) {
     await signOut()
     message.value = 'Esta conta não administra esta loja.'
     return
   }
-  await syncPasswordRequirement()
   if (!mustChangePassword.value) await loadAdminProducts()
 }
 
@@ -234,9 +343,23 @@ async function handlePasswordChanged() {
   await loadAdminProducts()
 }
 
+function toggleImportPanel() {
+  showImportPanel.value = !showImportPanel.value
+  if (showImportPanel.value) showPasskeyPanel.value = false
+}
+
+function togglePasskeyPanel() {
+  showPasskeyPanel.value = !showPasskeyPanel.value
+  if (showPasskeyPanel.value) showImportPanel.value = false
+}
+
+const secondaryBtnClass =
+  'min-h-10 px-3 text-sm font-semibold border-2 rounded-xl active:bg-zinc-50'
+
 async function onProductsImported() {
   message.value = ''
   await loadAdminProducts()
+  showImportPanel.value = false
 }
 
 const productCount = computed(() => adminProducts.value.length)
@@ -245,7 +368,7 @@ const productCount = computed(() => adminProducts.value.length)
 <template>
   <div class="min-h-screen min-h-[100dvh] bg-zinc-100">
     <header class="bg-white border-b border-zinc-300 px-3 sm:px-4 py-3 sticky top-0 z-10 pt-safe shadow-sm">
-      <div class="max-w-2xl mx-auto flex items-start justify-between gap-2">
+      <div class="max-w-2xl mx-auto flex items-start justify-between gap-2 pt-1.5">
         <div class="min-w-0 flex-1">
           <h1 class="text-lg font-bold text-zinc-900">
             Administração
@@ -318,21 +441,11 @@ const productCount = computed(() => adminProducts.value.length)
 
         <!-- CRUD -->
         <template v-else>
-          <AdminPasskeySetup />
-
-          <AdminProductImport
-            v-if="supplier"
-            :supplier-id="supplier.id"
-            :disabled="loading"
-            @imported="onProductsImported"
-            @error="(msg) => (message = msg)"
-          />
-
           <form
             class="bg-white border border-zinc-200 rounded-xl p-5 space-y-4 shadow-sm"
-            @submit.prevent="saveProduct"
+            @submit.prevent="onProductFormSubmit"
           >
-            <h2 class="font-bold text-zinc-900">
+            <h2 class="text-lg font-bold text-zinc-900">
               {{ editingId ? 'Editar produto' : 'Novo produto' }}
             </h2>
 
@@ -409,10 +522,52 @@ const productCount = computed(() => adminProducts.value.length)
             </div>
           </form>
 
-          <div class="flex justify-end">
+          <div class="flex flex-wrap gap-2">
             <button
               type="button"
-              class="text-sm text-zinc-600 underline"
+              :class="[
+                secondaryBtnClass,
+                showImportPanel
+                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
+                  : 'border-zinc-300 bg-white text-zinc-700',
+              ]"
+              @click="toggleImportPanel"
+            >
+              {{ showImportPanel ? 'Fechar importação' : 'Importar planilha' }}
+            </button>
+            <button
+              v-if="passkeyAvailable"
+              type="button"
+              :class="[
+                secondaryBtnClass,
+                showPasskeyPanel
+                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
+                  : 'border-zinc-300 bg-white text-zinc-700',
+              ]"
+              @click="togglePasskeyPanel"
+            >
+              {{ showPasskeyPanel ? 'Fechar biometria' : 'Entrada com biometria' }}
+            </button>
+          </div>
+
+          <AdminProductImport
+            v-if="showImportPanel && supplier"
+            :supplier-id="supplier.id"
+            :disabled="loading"
+            @imported="onProductsImported"
+            @error="(msg) => (message = msg)"
+            @close="showImportPanel = false"
+          />
+
+          <AdminPasskeySetup
+            v-if="showPasskeyPanel"
+            @close="showPasskeyPanel = false"
+          />
+
+          <div class="pt-2">
+            <button
+              type="button"
+              class="w-full min-h-11 px-4 text-sm font-semibold text-red-800 bg-white border-2 border-red-200 rounded-xl active:bg-red-50"
               @click="handleSignOut"
             >
               Sair da conta
@@ -451,9 +606,72 @@ const productCount = computed(() => adminProducts.value.length)
                     <p class="text-sm font-semibold text-zinc-800 mt-1">
                       {{ formatPrice(Number(p.price)) }}
                     </p>
-                    <p class="text-xs text-zinc-500">
-                      Estoque: {{ p.stock }}
-                    </p>
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                      <span class="text-xs text-zinc-500">Estoque</span>
+                      <div class="flex flex-wrap items-center gap-1">
+                        <button
+                          type="button"
+                          :class="stockStepBtnClass"
+                          :disabled="loading || p.stock <= 0"
+                          @click="adjustStock(p, -10)"
+                        >
+                          −10
+                        </button>
+                        <button
+                          type="button"
+                          :class="stockStepBtnClass"
+                          :disabled="loading || p.stock <= 0"
+                          @click="adjustStock(p, -5)"
+                        >
+                          −5
+                        </button>
+                        <button
+                          type="button"
+                          :class="stockStepBtnClass"
+                          :disabled="loading || p.stock <= 0"
+                          aria-label="Diminuir estoque em 1"
+                          @click="adjustStock(p, -1)"
+                        >
+                          −1
+                        </button>
+                        <span class="min-w-[2.5rem] text-center text-sm font-bold text-zinc-900 tabular-nums">
+                          {{ p.stock }}
+                        </span>
+                        <button
+                          type="button"
+                          :class="stockStepBtnClass"
+                          :disabled="loading || p.stock >= 999_999"
+                          aria-label="Aumentar estoque em 1"
+                          @click="adjustStock(p, 1)"
+                        >
+                          +1
+                        </button>
+                        <button
+                          type="button"
+                          :class="stockStepBtnClass"
+                          :disabled="loading || p.stock >= 999_999"
+                          @click="adjustStock(p, 5)"
+                        >
+                          +5
+                        </button>
+                        <button
+                          type="button"
+                          :class="stockStepBtnClass"
+                          :disabled="loading || p.stock >= 999_994"
+                          @click="adjustStock(p, 10)"
+                        >
+                          +10
+                        </button>
+                        <button
+                          type="button"
+                          class="min-h-9 px-2 rounded-lg border-2 border-red-200 bg-red-50 text-xs font-bold text-red-800 active:bg-red-100 disabled:opacity-40"
+                          :disabled="loading || p.stock === 0"
+                          @click="zeroStock(p)"
+                        >
+                          Zerar
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div class="grid grid-cols-2 gap-2 mt-3">

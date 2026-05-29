@@ -131,7 +131,7 @@
             target="_blank"
             rel="noopener noreferrer"
             class="flex items-center justify-center gap-2 w-full min-h-14 text-base font-bold text-white bg-green-600 active:bg-green-700 rounded-xl no-underline"
-            @click="open = false"
+            @click="onWhatsAppCheckout"
           >
             <PhWhatsappLogo :size="24" aria-hidden="true" />
             Comprar no WhatsApp
@@ -198,4 +198,9 @@ function onQuantityInput(
 const whatsappUrl = computed(() =>
   buildWhatsAppCheckoutUrl(props.whatsapp, items.value)
 )
+
+function onWhatsAppCheckout() {
+  open.value = false
+  clear()
+}
 </script>

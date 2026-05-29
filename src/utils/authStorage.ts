@@ -45,7 +45,7 @@ function clearSupabaseAuthKeys(storage: Storage): void {
 
 /**
  * Aplica “lembrar login” e move a sessão para o storage correto.
- * Chamar antes/depois do login e ao mudar o checkbox.
+ * Usar ao mudar o checkbox (antes de um novo login).
  */
 export function applyRememberPreference(remember: boolean): void {
   setRememberLogin(remember)
@@ -59,12 +59,39 @@ export function applyRememberPreference(remember: boolean): void {
   }
 }
 
+/**
+ * Garante que a sessão recém-logada fique no storage certo (local = lembrar).
+ * Chamar só depois de signIn bem-sucedido.
+ */
+export function finalizeAuthPersistence(remember: boolean): void {
+  setRememberLogin(remember)
+  const target = remember ? localStorage : sessionStorage
+  const other = remember ? sessionStorage : localStorage
+
+  const keys = new Set([
+    ...collectSupabaseAuthKeys(localStorage),
+    ...collectSupabaseAuthKeys(sessionStorage),
+  ])
+
+  for (const key of keys) {
+    const value = localStorage.getItem(key) ?? sessionStorage.getItem(key)
+    if (value !== null) {
+      target.setItem(key, value)
+    }
+    other.removeItem(key)
+    if (!remember) {
+      localStorage.removeItem(key)
+    }
+  }
+}
+
 function reconcileOnStartup(): void {
   if (typeof window === 'undefined') return
 
   if (getRememberLogin()) {
     migrateSupabaseAuthKeys(sessionStorage, localStorage)
   } else {
+    migrateSupabaseAuthKeys(localStorage, sessionStorage)
     clearSupabaseAuthKeys(localStorage)
   }
 }

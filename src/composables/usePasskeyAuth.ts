@@ -1,6 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { applyRememberPreference } from '@/utils/authStorage'
+import { finalizeAuthPersistence } from '@/utils/authStorage'
 
 export function supportsPasskeys(): boolean {
   return (
@@ -73,15 +73,13 @@ export async function signInWithPasskeyAuth(
     }
   }
 
-  applyRememberPreference(rememberMe)
-
   const { data, error } = await supabase.auth.signInWithPasskey()
 
   if (error) {
     return { session: null, error: mapPasskeyError(error) }
   }
 
-  applyRememberPreference(rememberMe)
+  finalizeAuthPersistence(rememberMe)
   return { session: data.session, error: null }
 }
 

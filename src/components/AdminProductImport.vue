@@ -1,12 +1,22 @@
 <template>
   <section class="bg-white border border-zinc-200 rounded-xl p-5 space-y-4 shadow-sm">
-    <div>
-      <h2 class="font-bold text-zinc-900">
-        Importar vários produtos
-      </h2>
-      <p class="text-sm text-zinc-600 mt-1">
-        Use uma planilha do Excel ou do Google Planilhas. Fotos não entram na importação — adicione depois, produto a produto.
-      </p>
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="font-bold text-zinc-900">
+          Importar vários produtos
+        </h2>
+        <p class="text-sm text-zinc-600 mt-1">
+          Excel ou Google Planilhas (.csv / .xlsx). Fotos não entram — adicione depois em cada produto.
+        </p>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 min-h-9 px-3 text-sm font-semibold text-zinc-600 border border-zinc-300 rounded-lg active:bg-zinc-50"
+        aria-label="Fechar importação"
+        @click="emit('close')"
+      >
+        Fechar
+      </button>
     </div>
 
     <details class="text-sm text-zinc-600 space-y-2">
@@ -31,9 +41,6 @@
           (a primeira linha pode ser o cabeçalho).
         </li>
       </ul>
-      <p class="text-xs text-zinc-500 pt-1">
-        Não usamos login do Google aqui — exportar CSV ou enviar o Excel é o jeito mais simples e seguro.
-      </p>
     </details>
 
     <div class="flex flex-col sm:flex-row gap-2">
@@ -180,6 +187,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   imported: []
   error: [message: string]
+  close: []
 }>()
 
 const DB_TIMEOUT_MS = 60_000
@@ -264,7 +272,7 @@ async function runImport() {
       const batch = rows.slice(i, i + BATCH_SIZE)
       importProgress.value = `${Math.min(i + batch.length, rows.length)} / ${rows.length}`
       const { error } = await withTimeout(
-        supabase.from('products').insert(batch),
+        () => supabase.from('products').insert(batch),
         DB_TIMEOUT_MS,
         'A importação demorou demais. Verifique sua conexão.'
       )

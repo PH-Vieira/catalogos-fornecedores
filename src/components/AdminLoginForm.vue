@@ -77,6 +77,7 @@
           v-model="rememberMe"
           type="checkbox"
           class="h-5 w-5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+          @change="onRememberChange"
         >
         <span class="text-sm text-zinc-700">Lembrar login neste aparelho</span>
       </label>
@@ -114,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import type { Session } from '@supabase/supabase-js'
 import { Fingerprint } from '@lucide/vue'
 import { secureSignIn } from '@/composables/useSecureSignIn'
@@ -150,9 +151,9 @@ onMounted(() => {
   rememberMe.value = getRememberLogin()
 })
 
-watch(rememberMe, (checked) => {
-  applyRememberPreference(checked)
-})
+function onRememberChange() {
+  applyRememberPreference(rememberMe.value)
+}
 
 function updateLockMessage() {
   lockMessage.value = email.value ? getLoginLockMessage(email.value) : null
@@ -180,7 +181,6 @@ async function submitPassword() {
     return
   }
 
-  applyRememberPreference(rememberMe.value)
   emit('success', session)
 }
 

@@ -4,7 +4,7 @@
     class="fixed z-40 h-14 w-14 rounded-full bg-zinc-900 text-white shadow-lg flex items-center justify-center active:bg-zinc-700 right-3 sm:right-4 bottom-[max(1rem,env(safe-area-inset-bottom))]"
     aria-label="Área administrativa"
     title="Área administrativa"
-    @click="openModal"
+    @click="onLockClick"
   >
     <Lock :size="24" aria-hidden="true" />
   </button>
@@ -59,6 +59,7 @@ import type { Session } from '@supabase/supabase-js'
 import { useRouter } from 'vue-router'
 import { Lock } from '@lucide/vue'
 import { supabase } from '@/lib/supabase'
+import { useAdminAuth } from '@/composables/useAdminAuth'
 import { fetchMustChangePassword } from '@/utils/password'
 import AdminLoginForm from '@/components/AdminLoginForm.vue'
 import ForcePasswordChange from '@/components/ForcePasswordChange.vue'
@@ -69,9 +70,19 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const { session, isOwner, setSession, refreshAuth } = useAdminAuth(() => props.supplier)
 const open = ref(false)
 const step = ref<'login' | 'password'>('login')
 const message = ref('')
+
+async function onLockClick() {
+  await refreshAuth()
+  if (session.value && isOwner.value) {
+    await router.push('/admin')
+    return
+  }
+  openModal()
+}
 
 function openModal() {
   step.value = 'login'
@@ -103,11 +114,14 @@ async function onLoginSuccess(session: Session) {
     return
   }
 
+  setSession(session)
+  await refreshAuth()
   closeModal()
   await router.push('/admin')
 }
 
 async function onPasswordChanged() {
+  await refreshAuth()
   closeModal()
   await router.push('/admin')
 }
