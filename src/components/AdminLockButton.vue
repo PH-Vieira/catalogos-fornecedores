@@ -9,48 +9,53 @@
     <Lock :size="24" aria-hidden="true" />
   </button>
 
-  <div
-    v-if="open"
-    class="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center bg-black/50 p-0 sm:p-4"
-    @click.self="closeModal"
-  >
-    <div
-      class="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-xl p-5 pb-safe space-y-4 max-h-[92dvh] overflow-y-auto"
-      role="dialog"
-      aria-labelledby="admin-login-title"
-    >
-      <div class="flex items-center justify-between gap-2">
-        <h2 id="admin-login-title" class="text-lg font-bold text-zinc-900 flex items-center gap-2">
-          <Lock :size="20" aria-hidden="true" />
-          {{ step === 'password' ? 'Nova senha' : 'Administração' }}
-        </h2>
-        <button
-          v-if="step === 'login'"
-          type="button"
-          class="btn-touch text-2xl text-zinc-500 active:text-zinc-900"
-          aria-label="Fechar"
-          @click="closeModal"
+  <Teleport to="body">
+    <Transition name="modal-overlay">
+      <div
+        v-if="open"
+        class="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center bg-black/50 p-0 sm:p-4"
+        @click.self="closeModal"
+      >
+        <div
+          class="modal-sheet bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-xl p-5 pb-safe space-y-4 max-h-[92dvh] overflow-y-auto"
+          role="dialog"
+          aria-labelledby="admin-login-title"
+          @click.stop
         >
-          ×
-        </button>
+          <div class="flex items-center justify-between gap-2">
+            <h2 id="admin-login-title" class="text-lg font-bold text-zinc-900 flex items-center gap-2">
+              <Lock :size="20" aria-hidden="true" />
+              {{ step === 'password' ? 'Nova senha' : 'Administração' }}
+            </h2>
+            <button
+              v-if="step === 'login'"
+              type="button"
+              class="btn-touch text-2xl text-zinc-500 active:text-zinc-900"
+              aria-label="Fechar"
+              @click="closeModal"
+            >
+              ×
+            </button>
+          </div>
+
+          <ForcePasswordChange
+            v-if="step === 'password'"
+            :supplier-id="supplier.id"
+            @done="onPasswordChanged"
+          />
+
+          <template v-else>
+            <p v-if="message" class="text-sm text-red-600">{{ message }}</p>
+            <AdminLoginForm
+              compact
+              :supplier="supplier"
+              @success="onLoginSuccess"
+            />
+          </template>
+        </div>
       </div>
-
-      <ForcePasswordChange
-        v-if="step === 'password'"
-        :supplier-id="supplier.id"
-        @done="onPasswordChanged"
-      />
-
-      <template v-else>
-        <p v-if="message" class="text-sm text-red-600">{{ message }}</p>
-        <AdminLoginForm
-          compact
-          :supplier="supplier"
-          @success="onLoginSuccess"
-        />
-      </template>
-    </div>
-  </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

@@ -1,15 +1,17 @@
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="fixed inset-0 z-50 flex flex-col justify-end sm:flex-row sm:justify-end bg-black/50"
-      @click.self="open = false"
-    >
-      <aside
-        class="bg-white w-full sm:max-w-md flex flex-col shadow-2xl rounded-t-2xl sm:rounded-none h-[min(92dvh,100%)] sm:h-full max-h-[100dvh]"
-        role="dialog"
-        aria-labelledby="cart-title"
+    <Transition name="modal-overlay">
+      <div
+        v-if="open"
+        class="fixed inset-0 z-50 flex flex-col justify-end sm:flex-row sm:justify-end bg-black/50"
+        @click.self="open = false"
       >
+        <aside
+          class="drawer-panel bg-white w-full sm:max-w-md flex flex-col shadow-2xl rounded-t-2xl sm:rounded-none h-[min(92dvh,100%)] sm:h-full max-h-[100dvh]"
+          role="dialog"
+          aria-labelledby="cart-title"
+          @click.stop
+        >
         <div
           class="flex items-center justify-between border-b border-zinc-200 px-4 py-3 shrink-0 pt-3"
         >
@@ -148,8 +150,9 @@
             Limpar carrinho
           </button>
         </div>
-      </aside>
-    </div>
+        </aside>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 

@@ -41,3 +41,160 @@ body {
   min-height: 3rem;
   min-width: 3rem;
 }
+
+/* Painéis expansíveis (admin) */
+.collapsible-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.collapsible-grid--open {
+  grid-template-rows: 1fr;
+}
+
+.collapsible-grid__clip {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.collapsible-grid__content {
+  opacity: 0;
+  transform: translateY(-10px);
+  transition:
+    opacity 0.35s ease,
+    transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.collapsible-grid--open .collapsible-grid__content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Modais e overlays */
+.modal-overlay-enter-active,
+.modal-overlay-leave-active {
+  transition: opacity 0.35s ease;
+}
+
+.modal-overlay-enter-from,
+.modal-overlay-leave-to {
+  opacity: 0;
+}
+
+.modal-overlay-enter-active .modal-sheet {
+  animation: modal-sheet-in 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.modal-overlay-leave-active .modal-sheet {
+  animation: modal-sheet-out 0.32s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+@keyframes modal-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modal-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+.modal-overlay-enter-active .drawer-panel {
+  animation: drawer-in 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.modal-overlay-leave-active .drawer-panel {
+  animation: drawer-out 0.32s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes drawer-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@media (min-width: 640px) {
+  @keyframes modal-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(24px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes modal-sheet-out {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(16px) scale(0.97);
+    }
+  }
+
+  @keyframes drawer-in {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes drawer-out {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsible-grid,
+  .collapsible-grid__content {
+    transition-duration: 0.15s !important;
+  }
+
+  .modal-overlay-enter-active,
+  .modal-overlay-leave-active {
+    transition-duration: 0.15s !important;
+  }
+
+  .modal-overlay-enter-active .modal-sheet,
+  .modal-overlay-leave-active .modal-sheet,
+  .modal-overlay-enter-active .drawer-panel,
+  .modal-overlay-leave-active .drawer-panel {
+    animation-duration: 0.15s !important;
+  }
+}

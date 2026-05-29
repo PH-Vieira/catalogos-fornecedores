@@ -9,6 +9,8 @@ import AdminPasskeySetup from '@/components/AdminPasskeySetup.vue'
 import ForcePasswordChange from '@/components/ForcePasswordChange.vue'
 import ProductImagesUploadField from '@/components/ProductImagesUploadField.vue'
 import AdminProductImport from '@/components/AdminProductImport.vue'
+import AdminSupplierSettings from '@/components/AdminSupplierSettings.vue'
+import AnimatedCollapsible from '@/components/AnimatedCollapsible.vue'
 import { validateProductInput, isValidUuid } from '@/utils/security/validate'
 import { validateImageFile, safeImageExtension } from '@/utils/security/upload'
 import { formatPrice } from '@/utils/format'
@@ -16,7 +18,7 @@ import { withTimeout } from '@/utils/async'
 import { normalizeProduct, productImageUrls } from '@/utils/productImages'
 import { supabase } from '@/lib/supabase'
 import { supportsPasskeys } from '@/composables/usePasskeyAuth'
-import type { Product } from '@/types'
+import type { Product, Supplier } from '@/types'
 
 const { supplier, loading: supplierLoading, error: supplierError, load } =
   useSupplier()
@@ -38,6 +40,7 @@ const loading = ref(false)
 const message = ref('')
 const showImportPanel = ref(false)
 const showPasskeyPanel = ref(false)
+const showStorePanel = ref(false)
 const passkeyAvailable = supportsPasskeys()
 
 const editingId = ref<string | null>(null)
@@ -345,12 +348,18 @@ async function handlePasswordChanged() {
 
 function toggleImportPanel() {
   showImportPanel.value = !showImportPanel.value
-  if (showImportPanel.value) showPasskeyPanel.value = false
+  if (showImportPanel.value) {
+    showPasskeyPanel.value = false
+    showStorePanel.value = false
+  }
 }
 
 function togglePasskeyPanel() {
   showPasskeyPanel.value = !showPasskeyPanel.value
-  if (showPasskeyPanel.value) showImportPanel.value = false
+  if (showPasskeyPanel.value) {
+    showImportPanel.value = false
+    showStorePanel.value = false
+  }
 }
 
 const secondaryBtnClass =
@@ -360,6 +369,21 @@ async function onProductsImported() {
   message.value = ''
   await loadAdminProducts()
   showImportPanel.value = false
+}
+
+function onSupplierSaved(updated: Supplier) {
+  if (supplier.value) {
+    Object.assign(supplier.value, updated)
+    document.title = updated.name
+  }
+}
+
+function toggleStorePanel() {
+  showStorePanel.value = !showStorePanel.value
+  if (showStorePanel.value) {
+    showImportPanel.value = false
+    showPasskeyPanel.value = false
+  }
 }
 
 const productCount = computed(() => adminProducts.value.length)
@@ -441,6 +465,53 @@ const productCount = computed(() => adminProducts.value.length)
 
         <!-- CRUD -->
         <template v-else>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              :class="[
+                secondaryBtnClass,
+                showStorePanel
+                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
+                  : 'border-zinc-300 bg-white text-zinc-700',
+              ]"
+              @click="toggleStorePanel"
+            >
+              {{ showStorePanel ? 'Ocultar dados da loja' : 'Dados da loja' }}
+            </button>
+            <button
+              type="button"
+              :class="[
+                secondaryBtnClass,
+                showImportPanel
+                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
+                  : 'border-zinc-300 bg-white text-zinc-700',
+              ]"
+              @click="toggleImportPanel"
+            >
+              {{ showImportPanel ? 'Fechar importação' : 'Importar planilha' }}
+            </button>
+            <button
+              v-if="passkeyAvailable"
+              type="button"
+              :class="[
+                secondaryBtnClass,
+                showPasskeyPanel
+                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
+                  : 'border-zinc-300 bg-white text-zinc-700',
+              ]"
+              @click="togglePasskeyPanel"
+            >
+              {{ showPasskeyPanel ? 'Fechar biometria' : 'Entrada com biometria' }}
+            </button>
+          </div>
+
+          <AnimatedCollapsible :open="showStorePanel">
+            <AdminSupplierSettings
+              :supplier="supplier"
+              @saved="onSupplierSaved"
+            />
+          </AnimatedCollapsible>
+
           <form
             class="bg-white border border-zinc-200 rounded-xl p-5 space-y-4 shadow-sm"
             @submit.prevent="onProductFormSubmit"
@@ -522,47 +593,19 @@ const productCount = computed(() => adminProducts.value.length)
             </div>
           </form>
 
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              :class="[
-                secondaryBtnClass,
-                showImportPanel
-                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
-                  : 'border-zinc-300 bg-white text-zinc-700',
-              ]"
-              @click="toggleImportPanel"
-            >
-              {{ showImportPanel ? 'Fechar importação' : 'Importar planilha' }}
-            </button>
-            <button
-              v-if="passkeyAvailable"
-              type="button"
-              :class="[
-                secondaryBtnClass,
-                showPasskeyPanel
-                  ? 'border-zinc-900 bg-zinc-100 text-zinc-900'
-                  : 'border-zinc-300 bg-white text-zinc-700',
-              ]"
-              @click="togglePasskeyPanel"
-            >
-              {{ showPasskeyPanel ? 'Fechar biometria' : 'Entrada com biometria' }}
-            </button>
-          </div>
+          <AnimatedCollapsible :open="showImportPanel && !!supplier">
+            <AdminProductImport
+              :supplier-id="supplier.id"
+              :disabled="loading"
+              @imported="onProductsImported"
+              @error="(msg) => (message = msg)"
+              @close="showImportPanel = false"
+            />
+          </AnimatedCollapsible>
 
-          <AdminProductImport
-            v-if="showImportPanel && supplier"
-            :supplier-id="supplier.id"
-            :disabled="loading"
-            @imported="onProductsImported"
-            @error="(msg) => (message = msg)"
-            @close="showImportPanel = false"
-          />
-
-          <AdminPasskeySetup
-            v-if="showPasskeyPanel"
-            @close="showPasskeyPanel = false"
-          />
+          <AnimatedCollapsible :open="showPasskeyPanel">
+            <AdminPasskeySetup @close="showPasskeyPanel = false" />
+          </AnimatedCollapsible>
 
           <div class="pt-2">
             <button
